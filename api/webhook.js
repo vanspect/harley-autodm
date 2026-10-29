@@ -40,10 +40,13 @@ async function handleComment(v, myId) {
   const myName = (process.env.IG_USERNAME || '').replace('@', '').toLowerCase();
   if (myName && v.from?.username?.toLowerCase() === myName) return;
   const isQuote = hasKeyword(v.text, cfg.QUOTE_KEYWORDS || []);
-  if (!isQuote && !hasKeyword(v.text, cfg.COMMENT_KEYWORDS)) return;
+  const model = md.findModel(v.text);
+  if (!model && !isQuote && !hasKeyword(v.text, cfg.COMMENT_KEYWORDS)) return;
   if (seenRecently(`c:${v.id}`)) return;
-  console.log('키워드 댓글', isQuote ? '[견적]' : '[프로모션]', v.from?.username, v.text);
-  await ig.privateReply(v.id, isQuote ? cfg.QUOTE_PRIVATE_REPLY_TEXT : cfg.PRIVATE_REPLY_TEXT);
+  console.log('키워드 댓글', model ? `[모델:${model.slug}]` : isQuote ? '[견적]' : '[프로모션]', v.from?.username, v.text);
+  const text = model ? md.MODEL_PRIVATE_REPLY_TEXT(model, isQuote)
+    : isQuote ? cfg.QUOTE_PRIVATE_REPLY_TEXT : cfg.PRIVATE_REPLY_TEXT;
+  await ig.privateReply(v.id, text);
   if (cfg.PUBLIC_COMMENT_REPLY) {
     await ig.replyToComment(v.id, cfg.PUBLIC_COMMENT_REPLY).catch(() => {});
   }
@@ -94,7 +97,7 @@ async function handleModel(userId, text, model, origin, wantsQuote, wantsPromo) 
   if (seenRecently(`md:${userId}:${model.slug}:${wantsQuote ? 'q' : ''}`)) return;
   const base = process.env.PUBLIC_BASE_URL || origin;
   await ig.sendText(userId, md.MODEL_BEFORE_TEXT(model));
-  await ig.sendImages(userId, md.modelFiles(model).map((f) => `${base}/models/${f}`));
+  await ig.sendImages(userId, md.modelFiles(model).map((f) => `${base}/${f}`));
   if (wantsQuote) {
     await ig.sendText(userId, `${model.name} 견적은 아래 링크에서 월 납입금까지 바로 확인해 보세요 👇`);
     await ig.sendText(userId, cfg.QUOTE_URL);
