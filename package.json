@@ -1,0 +1,11 @@
+{
+  "name": "harley-hannam-autodm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "인스타 키워드 댓글/DM에 자동으로 프로모션 PDF를 보내는 봇 (할리데이비슨 한남)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node test/simulate.mjs"
+  }
+}
