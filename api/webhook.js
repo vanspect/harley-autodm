@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import * as cfg from '../lib/config.js';
 import * as ig from '../lib/instagram.js';
+import * as md from '../lib/models.js';
 
 const recent = new Map(); // 중복 발송 방지 (서버 인스턴스가 살아있는 동안)
 
@@ -48,16 +49,30 @@ async function handleComment(v, myId) {
   }
 }
 
-// 2) DM → PDF/이미지 발송
-async function handleMessage(m, myId) {
+// 2) DM → 모델 자료 / 견적 링크 / 프로모션 자료
+async function handleMessage(m, myId, origin) {
   const msg = m.message;
   if (!msg || msg.is_echo || msg.is_deleted) return; // 내가 보낸 메시지는 무시
   const userId = m.sender?.id;
   if (!userId || userId === myId) return;
-  if (hasKeyword(msg.text || '', cfg.QUOTE_KEYWORDS || [])) return handleQuote(userId, msg.text);
-  if (!hasKeyword(msg.text || '', cfg.DM_KEYWORDS)) return;
-  console.log('키워드 DM', userId, msg.text);
-  if (cfg.FOLLOW_REQUIRED && !(await ig.isFollower(userId))) {
+  const text = msg.text || '';
+  const model = md.findModel(text);
+  const wantsQuote = hasKeyword(text, cfg.QUOTE_KEYWORDS || []);
+  const wantsPromo = hasKeyword(text, cfg.DM_KEYWORDS);
+
+  // 모델명이 있으면 모델 카드 (+ '견적'이 같이 있으면 견적 링크, '프로모션'이 같이 있으면 프로모션 자료도)
+  if (model) return handleModel(userId, text, model, origin, wantsQuote, wantsPromo);
+  if (wantsQuote) return handleQuote(userId, text);
+  if (wantsPromo) return handlePromo(userId, text);
+  if (hasKeyword(text, md.LIST_KEYWORDS)) {
+    if (seenRecently(`l:${userId}`)) return;
+    await ig.sendText(userId, md.LIST_TEXT);
+  }
+}
+
+async function handlePromo(userId, text, skipFollowCheck = false) {
+  console.log('키워드 DM', userId, text);
+  if (!skipFollowCheck && cfg.FOLLOW_REQUIRED && !(await ig.isFollower(userId))) {
     await ig.sendText(userId, cfg.NOT_FOLLOWING_TEXT); // 팔로우 후 다시 보내면 통과
     return;
   }
@@ -67,6 +82,27 @@ async function handleMessage(m, myId) {
   if (images.length) await ig.sendImages(userId, images);
   if (pdf) await ig.sendFile(userId, pdf);
   await ig.sendText(userId, cfg.AFTER_FILE_TEXT);
+}
+
+// 모델명 DM → 그 모델 제원·컬러 카드
+async function handleModel(userId, text, model, origin, wantsQuote, wantsPromo) {
+  console.log('모델 DM', model.slug, wantsQuote ? '+견적' : '', wantsPromo ? '+프로모션' : '', userId, text);
+  if (md.MODEL_FOLLOW_REQUIRED && !(await ig.isFollower(userId))) {
+    await ig.sendText(userId, md.MODEL_NOT_FOLLOWING_TEXT(model));
+    return;
+  }
+  if (seenRecently(`md:${userId}:${model.slug}:${wantsQuote ? 'q' : ''}`)) return;
+  const base = process.env.PUBLIC_BASE_URL || origin;
+  await ig.sendText(userId, md.MODEL_BEFORE_TEXT(model));
+  await ig.sendImages(userId, md.modelFiles(model).map((f) => `${base}/models/${f}`));
+  if (wantsQuote) {
+    await ig.sendText(userId, `${model.name} 견적은 아래 링크에서 월 납입금까지 바로 확인해 보세요 👇`);
+    await ig.sendText(userId, cfg.QUOTE_URL);
+    await ig.sendText(userId, '원하는 컬러와 조건(선수금·기간)을 이 DM으로 남겨주시면 정확하게 계산해 드릴게요 🙂');
+  } else if (!wantsPromo) {
+    await ig.sendText(userId, md.MODEL_AFTER_TEXT);
+  }
+  if (wantsPromo) await handlePromo(userId, text, true);
 }
 
 // 3) DM '견적' → 웹 견적 페이지 링크
@@ -101,12 +137,13 @@ export async function POST(request) {
   try { body = JSON.parse(raw); } catch { return new Response('Bad JSON', { status: 400 }); }
 
   const myId = process.env.IG_USER_ID || '';
+  const origin = new URL(request.url).origin;
   const jobs = [];
   for (const entry of body.entry || []) {
     for (const ch of entry.changes || []) {
       if (ch.field === 'comments' || ch.field === 'live_comments') jobs.push(handleComment(ch.value, myId));
     }
-    for (const m of entry.messaging || []) jobs.push(handleMessage(m, myId));
+    for (const m of entry.messaging || []) jobs.push(handleMessage(m, myId, origin));
   }
   const results = await Promise.allSettled(jobs);
   results.filter((r) => r.status === 'rejected').forEach((r) => console.error('처리 실패', r.reason?.message));
