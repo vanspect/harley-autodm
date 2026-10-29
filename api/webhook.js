@@ -61,7 +61,7 @@ async function handleMessage(m, myId) {
   }
   if (seenRecently(`m:${userId}`)) return;
   const { pdf, images } = fileUrls();
-  await ig.sendText(userId, cfg.BEFORE_FILE_TEXT);
+  await ig.sendText(userId, typeof cfg.BEFORE_FILE_TEXT === 'function' ? cfg.BEFORE_FILE_TEXT() : cfg.BEFORE_FILE_TEXT);
   if (images.length) await ig.sendImages(userId, images);
   if (pdf) await ig.sendFile(userId, pdf);
   await ig.sendText(userId, cfg.AFTER_FILE_TEXT);
