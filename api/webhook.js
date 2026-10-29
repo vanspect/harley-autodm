@@ -38,10 +38,11 @@ async function handleComment(v, myId) {
   if (v.from?.id && v.from.id === myId) return; // 내 댓글은 무시
   const myName = (process.env.IG_USERNAME || '').replace('@', '').toLowerCase();
   if (myName && v.from?.username?.toLowerCase() === myName) return;
-  if (!hasKeyword(v.text, cfg.COMMENT_KEYWORDS)) return;
+  const isQuote = hasKeyword(v.text, cfg.QUOTE_KEYWORDS || []);
+  if (!isQuote && !hasKeyword(v.text, cfg.COMMENT_KEYWORDS)) return;
   if (seenRecently(`c:${v.id}`)) return;
-  console.log('키워드 댓글', v.from?.username, v.text);
-  await ig.privateReply(v.id, cfg.PRIVATE_REPLY_TEXT);
+  console.log('키워드 댓글', isQuote ? '[견적]' : '[프로모션]', v.from?.username, v.text);
+  await ig.privateReply(v.id, isQuote ? cfg.QUOTE_PRIVATE_REPLY_TEXT : cfg.PRIVATE_REPLY_TEXT);
   if (cfg.PUBLIC_COMMENT_REPLY) {
     await ig.replyToComment(v.id, cfg.PUBLIC_COMMENT_REPLY).catch(() => {});
   }
@@ -53,6 +54,7 @@ async function handleMessage(m, myId) {
   if (!msg || msg.is_echo || msg.is_deleted) return; // 내가 보낸 메시지는 무시
   const userId = m.sender?.id;
   if (!userId || userId === myId) return;
+  if (hasKeyword(msg.text || '', cfg.QUOTE_KEYWORDS || [])) return handleQuote(userId, msg.text);
   if (!hasKeyword(msg.text || '', cfg.DM_KEYWORDS)) return;
   console.log('키워드 DM', userId, msg.text);
   if (cfg.FOLLOW_REQUIRED && !(await ig.isFollower(userId))) {
@@ -65,6 +67,19 @@ async function handleMessage(m, myId) {
   if (images.length) await ig.sendImages(userId, images);
   if (pdf) await ig.sendFile(userId, pdf);
   await ig.sendText(userId, cfg.AFTER_FILE_TEXT);
+}
+
+// 3) DM '견적' → 웹 견적 페이지 링크
+async function handleQuote(userId, text) {
+  console.log('견적 DM', userId, text);
+  if (cfg.QUOTE_FOLLOW_REQUIRED && !(await ig.isFollower(userId))) {
+    await ig.sendText(userId, cfg.QUOTE_NOT_FOLLOWING_TEXT);
+    return;
+  }
+  if (seenRecently(`q:${userId}`)) return;
+  await ig.sendText(userId, cfg.QUOTE_BEFORE_TEXT);
+  await ig.sendText(userId, cfg.QUOTE_URL);
+  await ig.sendText(userId, cfg.QUOTE_AFTER_TEXT);
 }
 
 // 메타가 주소 확인할 때 (웹훅 등록 시 한 번)
