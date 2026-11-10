@@ -39,10 +39,17 @@ async function handleComment(v, myId) {
   if (v.from?.id && v.from.id === myId) return; // 내 댓글은 무시
   const myName = (process.env.IG_USERNAME || '').replace('@', '').toLowerCase();
   if (myName && v.from?.username?.toLowerCase() === myName) return;
+  const isPersuade = hasKeyword(v.text, cfg.PERSUADE_KEYWORDS || []);
   const isQuote = hasKeyword(v.text, cfg.QUOTE_KEYWORDS || []);
   const model = md.findModel(v.text);
-  if (!model && !isQuote && !hasKeyword(v.text, cfg.COMMENT_KEYWORDS)) return;
+  if (!isPersuade && !model && !isQuote && !hasKeyword(v.text, cfg.COMMENT_KEYWORDS)) return;
   if (seenRecently(`c:${v.id}`)) return;
+  if (isPersuade) {
+    console.log('키워드 댓글 [설득]', v.from?.username, v.text);
+    await ig.privateReply(v.id, cfg.PERSUADE_PRIVATE_REPLY_TEXT);
+    if (cfg.PUBLIC_COMMENT_REPLY) await ig.replyToComment(v.id, cfg.PUBLIC_COMMENT_REPLY).catch(() => {});
+    return;
+  }
   console.log('키워드 댓글', model ? `[모델:${model.slug}]` : isQuote ? '[견적]' : '[프로모션]', v.from?.username, v.text);
   const text = model ? md.MODEL_PRIVATE_REPLY_TEXT(model, isQuote)
     : isQuote ? cfg.QUOTE_PRIVATE_REPLY_TEXT : cfg.PRIVATE_REPLY_TEXT;
@@ -63,6 +70,7 @@ async function handleMessage(m, myId, origin) {
   const wantsQuote = hasKeyword(text, cfg.QUOTE_KEYWORDS || []);
   const wantsPromo = hasKeyword(text, cfg.DM_KEYWORDS);
 
+  if (hasKeyword(text, cfg.PERSUADE_KEYWORDS || [])) return handlePersuade(userId, text, origin);
   // 모델명이 있으면 모델 카드 (+ '견적'이 같이 있으면 견적 링크, '프로모션'이 같이 있으면 프로모션 자료도)
   if (model) return handleModel(userId, text, model, origin, wantsQuote, wantsPromo);
   if (wantsQuote) return handleQuote(userId, text);
@@ -106,6 +114,20 @@ async function handleModel(userId, text, model, origin, wantsQuote, wantsPromo) 
     await ig.sendText(userId, md.MODEL_AFTER_TEXT);
   }
   if (wantsPromo) await handlePromo(userId, text, true);
+}
+
+// DM '설득' → 와이프 설득 자료 이미지 7장
+async function handlePersuade(userId, text, origin) {
+  console.log('설득 DM', userId, text);
+  if (cfg.PERSUADE_FOLLOW_REQUIRED && !(await ig.isFollower(userId))) {
+    await ig.sendText(userId, cfg.PERSUADE_NOT_FOLLOWING_TEXT);
+    return;
+  }
+  if (seenRecently(`p:${userId}`)) return;
+  const base = process.env.PUBLIC_BASE_URL || origin;
+  await ig.sendText(userId, cfg.PERSUADE_BEFORE_TEXT);
+  await ig.sendImages(userId, cfg.PERSUADE_IMAGES.map((f) => `${base}/${f}`));
+  await ig.sendText(userId, cfg.PERSUADE_AFTER_TEXT);
 }
 
 // 3) DM '견적' → 웹 견적 페이지 링크

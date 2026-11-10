@@ -1,0 +1,16 @@
+process.env.DRY_RUN = '1';
+process.env.IG_USER_ID = '1000';
+const { POST } = await import('../api/webhook.js');
+const post = (body) => POST(new Request('https://hannam.vercel.app/api/webhook', { method: 'POST', body: JSON.stringify(body) }));
+console.log('\n=== 1. 릴스 댓글 "설득 자료 주세요"');
+await post({ entry: [{ id: '1000', changes: [{ field: 'comments', value: { id: 'c9', text: '설득 자료 주세요', from: { id: '3001', username: 'husband' } } }] }] });
+console.log('\n=== 2. 팔로우 안 한 사람 DM "설득"');
+process.env.DRY_FOLLOWS = '0';
+await post({ entry: [{ id: '1000', messaging: [{ sender: { id: '3001' }, recipient: { id: '1000' }, message: { mid: 'a', text: '설득' } }] }] });
+console.log('\n=== 3. 팔로우 후 DM "설 득"');
+process.env.DRY_FOLLOWS = '1';
+await post({ entry: [{ id: '1000', messaging: [{ sender: { id: '3001' }, recipient: { id: '1000' }, message: { mid: 'b', text: '설 득' } }] }] });
+console.log('\n=== 4. 바로 또 "설득" → 중복 안 보냄');
+await post({ entry: [{ id: '1000', messaging: [{ sender: { id: '3001' }, recipient: { id: '1000' }, message: { mid: 'c', text: '설득' } }] }] });
+console.log('\n=== 5. 기존 "견적" 댓글은 그대로');
+await post({ entry: [{ id: '1000', changes: [{ field: 'comments', value: { id: 'c10', text: '견적', from: { id: '3002' } } }] }] });
